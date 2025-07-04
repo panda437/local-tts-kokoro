@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Story Video Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; background:#1e272e; color:#ecf0f1; margin:0; padding:20px; }
+        h1 { text-align:center; }
+        .container { max-width:800px; margin:0 auto; }
+        textarea { width:100%; height:120px; padding:10px; border-radius:6px; border:none; resize:vertical; }
+        select, button { padding:8px 12px; border-radius:6px; border:none; margin-top:10px; }
+        button { background:#27ae60; color:#fff; cursor:pointer; }
+        button:disabled { background:#555; cursor:default; }
+        #log { white-space:pre-wrap; background:#34495e; padding:10px; border-radius:6px; height:250px; overflow-y:auto; margin-top:20px; }
+        a { color:#00caff; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Story Video Generator</h1>
+
+    <label for="prompt">Story prompt (leave blank if pasting a complete story):</label><br />
+    <textarea id="prompt" placeholder="Enter your story idea..."></textarea><br />
+
+    <label for="storyText">OR paste full story text here:</label><br />
+    <textarea id="storyText" placeholder="Paste your ready-made story here..."></textarea><br />
+
+    <label for="voice">Narrator voice:</label>
+    <select id="voice"></select>
+
+    <br />
+    <button id="generate">Generate Story Video</button>
+
+    <h3>Status / Log</h3>
+    <div id="log"></div>
+</div>
+
+<script>
+const log = (msg) => {
+  const el = document.getElementById('log');
+  const t = new Date().toLocaleTimeString();
+  el.textContent += `[${t}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+};
+
+// populate voices
+fetch('/voices').then(r=>r.json()).then(list=>{
+  const sel=document.getElementById('voice');
+  list.forEach(v=>{
+    const opt=document.createElement('option');
+    opt.value=v; opt.textContent=v; sel.appendChild(opt);
+  });
+});
+
+document.getElementById('generate').addEventListener('click', async ()=>{
+  const btn=this.eventTarget||event.target; // compatibility
+  const prompt=document.getElementById('prompt').value.trim();
+  const storyText=document.getElementById('storyText').value.trim();
+  const voice=document.getElementById('voice').value;
+  if(!prompt && !storyText){ alert('Enter a prompt or paste story text'); return; }
+  btn.disabled=true; log('Sending request to server...');
+  const res=await fetch('/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,story_text:storyText,voice})});
+  const data=await res.json();
+  if(data.error){ log('Error: '+data.error); btn.disabled=false; return; }
+  log('Story generated!'); log('\n'+data.story+'\n');
+  log('Audio saved: '+data.audio_file);
+  if(data.video_file){
+    const link=document.createElement('a');
+    link.href='/download/'+data.video_file.split('/').pop();
+    link.textContent='Download video';
+    link.target='_blank';
+    log('Video ready: ');
+    document.getElementById('log').appendChild(link);
+    log('\n');
+  }
+  btn.disabled=false;
+});
+</script>
+</body>
+</html> 

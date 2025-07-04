@@ -1,0 +1,12 @@
+kokoro_models/
+voice-env/
+*.onnx
+*.bin
+__pycache__/
+*.pyc
+# macOS
+.DS_Store
+# video outputs
+*.mp4
+*.wav
+*.png 
