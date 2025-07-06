@@ -1,0 +1,124 @@
+<!-- templates/book_reader.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>📚 Snap-to-Audiobook</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body{margin:0;padding:0;background:#111;color:#eee;font-family:-apple-system,BlinkMacSystemFont,Helvetica,sans-serif;text-align:center}
+    h1{font-weight:500;margin-top:1rem}
+    .btn{display:inline-block;padding:0.7rem 1.4rem;font-size:0.9rem;border:none;border-radius:8px;background:#0af;color:#000;margin:0.4rem}
+    #preview{max-width:90vw;max-height:40vh;margin:1rem auto;display:none;border:2px solid #444}
+    #textBox{white-space:pre-wrap;font-size:1rem;max-width:90vw;margin:1rem auto;line-height:1.4em}
+    audio{width:90%;margin:1rem auto;display:none}
+    #status{margin:0.5rem;font-size:0.9rem;color:#0af}
+  </style>
+</head>
+<body>
+  <h1>Snap-to-Audiobook</h1>
+  <input id="captureInput" type="file" accept="image/*" capture="environment" style="display:none"/>
+  <label for="captureInput" class="btn">📷 Take Photo</label><br/>
+  <input id="uploadInput" type="file" accept="image/*" style="display:none"/>
+  <label for="uploadInput" class="btn">🖼️ Choose Image</label>
+  <br>
+  <img id="preview"/>
+  <div id="status"></div>
+  <div id="textBox"></div>
+  <audio id="player" controls></audio>
+
+<script>
+const $ = id=>document.getElementById(id);
+const captureInput=$('captureInput');
+const uploadInput=$('uploadInput');
+const preview=$('preview'),textBox=$('textBox'),player=$('player'),status=$('status');
+
+// Compress & pre-process image using canvas (resize + grayscale/contrast)
+async function compressImage(file){
+  const bitmap = await createImageBitmap(file);
+  const MAX_SIDE = 1280;
+  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width  * scale);
+  const h = Math.round(bitmap.height * scale);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  // improve OCR contrast
+  ctx.filter = 'grayscale(100%) contrast(140%)';
+  ctx.drawImage(bitmap, 0, 0, w, h);
+
+  // show preview
+  preview.src = canvas.toDataURL('image/jpeg', 0.8);
+  preview.style.display = 'block';
+
+  // convert to blob for upload
+  if(canvas.convertToBlob){
+    return await canvas.convertToBlob({type:'image/jpeg', quality:0.8});
+  }
+  return await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.8));
+}
+
+async function handleFile(file){
+  if(!file) return;
+
+  status.textContent='🖼️ Optimising image…';
+  const blob = await compressImage(file);
+
+  const body=new FormData();
+  body.append('image',blob,'page.jpg');
+  textBox.textContent='';
+  player.style.display='none';
+  status.textContent='⬆️ Uploading…';
+
+  try{
+    status.textContent='🧠 Processing…';
+    const r=await fetch('/upload_stream',{method:'POST',body});
+    if(!r.ok){status.textContent='❌ upload failed';return;}
+
+    const reader=r.body.getReader();
+    const decoder=new TextDecoder();
+    let buf='';
+    const playlist=[];
+
+    function playNext(){
+      if(!playlist.length) return;
+      player.src=playlist.shift();
+      player.play();
+    }
+    player.onended=playNext;
+    player.style.display='block';
+
+    async function pump(){
+      while(true){
+        const {done,value}=await reader.read();
+        if(done) break;
+        buf+=decoder.decode(value,{stream:true});
+        let idx;
+        while((idx=buf.indexOf('\n\n'))>=0){
+          const chunk=buf.slice(0,idx).trim();
+          buf=buf.slice(idx+2);
+          if(!chunk.startsWith('data:')) continue;
+          const data=JSON.parse(chunk.slice(5));
+          if(data.type==='meta'){
+            textBox.textContent=data.text;
+            status.textContent='🗣️ Generating audio…';
+          }
+          if(data.type==='audio'){
+            playlist.push(data.url);
+            if(player.paused){playNext();}
+          }
+        }
+      }
+      status.textContent='✅ All audio ready';
+    }
+    pump();
+  }catch(e){status.textContent='❌ '+e;}
+}
+
+captureInput.onchange=()=>handleFile(captureInput.files[0]);
+uploadInput.onchange=()=>handleFile(uploadInput.files[0]);
+</script>
+</body>
+</html> 
